@@ -421,7 +421,9 @@ local function theme_instance(config)
     gen_center(plist, config)
     gen_footer(config)
     map_key(config, config.confirm_key or '<CR>')
-    require('dashboard.events').register_lsp_root(config.path)
+	if config.project.enable then
+		require('dashboard.events').register_lsp_root(config.path)
+	end
     local size = math.floor(vim.o.lines / 2)
       - math.ceil(api.nvim_buf_line_count(config.bufnr) / 2)
       - 2
