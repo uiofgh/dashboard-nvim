@@ -18,7 +18,7 @@
 
 ```lua
 {
-  'glepnir/dashboard-nvim',
+  'nvimdev/dashboard-nvim',
   event = 'VimEnter',
   config = function()
     require('dashboard').setup {
@@ -33,7 +33,7 @@
 
 ```lua
 use {
-  'glepnir/dashboard-nvim',
+  'nvimdev/dashboard-nvim',
   event = 'VimEnter',
   config = function()
     require('dashboard').setup {
@@ -50,7 +50,7 @@ use {
 
 ```lua
 theme = 'hyper' --  theme is doom and hyper default is hyper
-disable_move    --  defualt is false disable move keymap for hyper
+disable_move    --  default is false disable move keymap for hyper
 shortcut_type   --  shorcut type 'letter' or 'number'
 change_to_vcs_root -- default is false,for open file in hyper mru. it will change to the root of vcs
 config = {},    --  config used for theme
@@ -98,7 +98,7 @@ config = {
   -- action can be a functino type, e.g.
   -- action = func(path) vim.cmd('Telescope find_files cwd=' .. path) end
   project = { enable = true, limit = 8, icon = 'your icon', label = '', action = 'Telescope find_files cwd=' },
-  mru = { limit = 10, icon = 'your icon', label = '', },
+  mru = { limit = 10, icon = 'your icon', label = '', cwd_only = false },
   footer = {}, -- footer
 }
 ```
@@ -117,6 +117,7 @@ config = {
       desc_hl = 'group',
       key = 'shortcut key in dashboard buffer not keymap !!',
       key_hl = 'group',
+      key_format = ' [%s]', -- `%s` will be substituted with value of `key`
       action = '',
     },
   },
@@ -131,6 +132,7 @@ dashboard will use default highlight group like `DashboardKey/Icon/Desc` instead
 
 - `Dashboard` open dashboard
 - `DbProjectDelete count` delete project in cache works for hyper theme. count is number
+- `DashboardUpdateFooter` updates the content of the Footer
 
 ### Highlight
 
@@ -141,9 +143,9 @@ all highlight groups
 DashboardHeader DashboardFooter
 -- Hyper theme
 DashboardProjectTitle DashboardProjectTitleIcon DashboardProjectIcon
-DashboardMruTitle DashboardMruIcon DashboardFiles DashboardShotCutIcon
+DashboardMruTitle DashboardMruIcon DashboardFiles DashboardShortCutIcon
 -- Doome theme
-DashboardDesc DashboardKey DashboardIcon DashboardShotCut
+DashboardDesc DashboardKey DashboardIcon DashboardShortCut
 ```
 
 ### Example config
@@ -161,7 +163,7 @@ example config of screenshot
        enable = true,
       },
       shortcut = {
-        { desc = ' Update', group = '@property', action = 'Lazy update', key = 'u' },
+        { desc = '󰊳 Update', group = '@property', action = 'Lazy update', key = 'u' },
         {
           icon = ' ',
           icon_hl = '@variable',
@@ -205,6 +207,7 @@ db.setup({
         key = 'b',
         keymap = 'SPC f f',
         key_hl = 'Number',
+        key_format = ' %s', -- remove default surrounding `[]`
         action = 'lua print(2)'
       },
       {
@@ -212,6 +215,7 @@ db.setup({
         desc = 'Find Dotfiles',
         key = 'f',
         keymap = 'SPC f d',
+        key_format = ' %s', -- remove default surrounding `[]`
         action = 'lua print(3)'
       },
     },

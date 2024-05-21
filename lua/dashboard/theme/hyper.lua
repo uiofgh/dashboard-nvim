@@ -1,4 +1,4 @@
-local api, keymap = vim.api, vim.keymap
+local api, keymap, uv = vim.api, vim.keymap, vim.loop
 local utils = require('dashboard.utils')
 local ns = api.nvim_create_namespace('dashboard')
 
@@ -77,10 +77,24 @@ local function load_packages(config)
     return
   end
 
-  local lines = {
-    '',
-    'neovim loaded ' .. utils.get_packages_count() .. ' packages',
-  }
+  local package_manager_stats = utils.get_package_manager_stats()
+  local lines = {}
+  if package_manager_stats.name == 'lazy' then
+    lines = {
+      '',
+      'Startuptime: ' .. package_manager_stats.time .. ' ms',
+      'Plugins: '
+        .. package_manager_stats.loaded
+        .. ' loaded / '
+        .. package_manager_stats.count
+        .. ' installed',
+    }
+  else
+    lines = {
+      '',
+      'neovim loaded ' .. package_manager_stats.count .. ' plugins',
+    }
+  end
 
   local first_line = api.nvim_buf_line_count(config.bufnr)
   api.nvim_buf_set_lines(config.bufnr, first_line, -1, false, utils.center_align(lines))
@@ -100,7 +114,7 @@ local function project_list(config, callback)
   config.project = vim.tbl_extend('force', {
     limit = 8,
     enable = true,
-    icon = ' ',
+    icon = '󰏓 ',
     icon_hl = 'DashboardRecentProjectIcon',
     action = 'Telescope find_files cwd=',
     label = ' Recent Projects:',
@@ -108,6 +122,7 @@ local function project_list(config, callback)
 
   local function read_project(data)
     local res = {}
+    data = string.gsub(data, '%z', '')
     local dump = assert(loadstring(data))
     local list = dump()
     if list then
@@ -148,6 +163,7 @@ local function mru_list(config)
     limit = 10,
     icon_hl = 'DashboardMruIcon',
     label = ' Most Recent Files:',
+    cwd_only = false,
   }, config.mru or {})
 
   local list = {
@@ -157,12 +173,24 @@ local function mru_list(config)
   local groups = {}
   local mlist = utils.get_mru_list()
 
+  if config.mru.cwd_only then
+    local cwd = uv.cwd()
+    mlist = vim.tbl_filter(function(file)
+      local file_dir = vim.fn.fnamemodify(file, ':p:h')
+      if file_dir and cwd then
+        return file_dir:find(cwd, 1, true) == 1
+      end
+    end, mlist)
+  end
+
   for _, file in pairs(vim.list_slice(mlist, 1, config.mru.limit)) do
-    local ft = vim.filetype.match({ filename = file })
-    local icon, group = utils.get_icon(ft)
+    local filename = vim.fn.fnamemodify(file, ':t')
+    local icon, group = utils.get_icon(filename)
     icon = icon or ' '
-    if not utils.is_win then
-      file = file:gsub(vim.env.HOME, '~')
+    if config.mru.cwd_only then
+      file = vim.fn.fnamemodify(file, ':.')
+    elseif not utils.is_win then
+      file = vim.fn.fnamemodify(file, ':~')
     end
     file = icon .. ' ' .. file
     table.insert(groups, { #icon, group })
@@ -175,21 +203,62 @@ local function mru_list(config)
   return list, groups
 end
 
+local function shuffle_table(table)
+  for i = #table, 2, -1 do
+    local j = math.random(i)
+    table[i], table[j] = table[j], table[i]
+  end
+end
+
 local function letter_hotkey(config)
+  -- Reserve j, k keys to move up and down.
   local list = { 106, 107 }
+
   for _, item in pairs(config.shortcut or {}) do
     if item.key then
       table.insert(list, item.key:byte())
     end
   end
+
   math.randomseed(os.time())
+
+  -- Create key table, fill it with unused characters.
+  local unused_keys = {}
+  -- a - z
+  for key = 97, 122 do
+    if not vim.tbl_contains(list, key) then
+      table.insert(unused_keys, key)
+    end
+  end
+
+  shuffle_table(unused_keys)
+
+  local unused_uppercase_keys = {}
+  -- A - Z
+  for key = 65, 90 do
+    if not vim.tbl_contains(list, key) then
+      table.insert(unused_uppercase_keys, key)
+    end
+  end
+
+  shuffle_table(unused_uppercase_keys)
+
+  -- Push shuffled uppercase keys after the lowercase ones
+  for _, key in pairs(unused_uppercase_keys) do
+    table.insert(unused_keys, key)
+  end
+
+  local fallback_hotkey = 0
+
   return function()
-    while true do
-      local key = math.random(97, 122)
-      if not vim.tbl_contains(list, key) then
-        table.insert(list, key)
-        return string.char(key)
-      end
+    if #unused_keys ~= 0 then
+      -- Pop an unused key to use it as a hotkey.
+      local key = table.remove(unused_keys, 1)
+      return string.char(key)
+    else
+      -- All keys are already used. Fallback to the number generation.
+      fallback_hotkey = fallback_hotkey + 1
+      return fallback_hotkey
     end
   end
 end
@@ -213,10 +282,20 @@ local function map_key(config, key, content)
   keymap.set('n', key, function()
     local text = content or api.nvim_get_current_line()
     local scol = utils.is_win and text:find('%w') or text:find('%p')
-    text = text:sub(scol)
-    local path = text:sub(1, text:find('%w(%s+)$'))
-    path = vim.fs.normalize(path)
-    if vim.fn.isdirectory(path) == 1 then
+    local path = nil
+
+    if scol ~= nil then -- scol == nil if pressing enter in empty space
+      if text:sub(scol, scol + 1) ~= '~/' then -- is relative path
+        scol = math.min(text:find('%w'), text:find('%p'))
+      end
+      text = text:sub(scol)
+      path = text:sub(1, text:find('%w(%s+)$'))
+      path = vim.fs.normalize(path)
+    end
+
+    if path == nil then
+      vim.cmd('enew')
+    elseif vim.fn.isdirectory(path) == 1 then
       vim.cmd('lcd ' .. path)
       if type(config.project.action) == 'function' then
         config.project.action(path)
@@ -229,7 +308,7 @@ local function map_key(config, key, content)
         end
       end
     else
-      vim.cmd('edit ' .. path)
+      vim.cmd('edit ' .. vim.fn.fnameescape(path))
       local root = utils.get_vcs_root()
       if not config.change_to_vcs_root then
         return
@@ -381,6 +460,8 @@ local function gen_footer(config)
   for i, _ in pairs(footer) do
     api.nvim_buf_add_highlight(config.bufnr, 0, 'DashboardFooter', first_line + i - 1, 0, -1)
   end
+
+  utils.add_update_footer_command(config.bufnr, footer)
 end
 
 local function project_delete()
@@ -412,11 +493,16 @@ end
 
 local function theme_instance(config)
   project_list(config, function(plist)
+    if not api.nvim_buf_is_valid(config.bufnr) then
+      return
+    end
     if config.disable_move then
       utils.disable_move_key(config.bufnr)
     end
     require('dashboard.theme.header').generate_header(config)
-    gen_shortcut(config)
+    if not config.shortcut or not vim.tbl_isempty(config.shortcut) then
+      gen_shortcut(config)
+    end
     load_packages(config)
     gen_center(plist, config)
     gen_footer(config)
@@ -430,6 +516,14 @@ local function theme_instance(config)
     local fill = utils.generate_empty_table(size)
     api.nvim_buf_set_lines(config.bufnr, 0, 0, false, fill)
     vim.bo[config.bufnr].modifiable = false
+    vim.bo[config.bufnr].modified = false
+    --defer until next event loop
+    vim.schedule(function()
+      api.nvim_exec_autocmds('User', {
+        pattern = 'DashboardLoaded',
+        modeline = false,
+      })
+    end)
     project_delete()
   end)
 end

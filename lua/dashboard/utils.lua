@@ -61,13 +61,13 @@ function utils.center_align(tbl)
   return centered_lines
 end
 
-function utils.get_icon(ft)
+function utils.get_icon(filename)
   local ok, devicons = pcall(require, 'nvim-web-devicons')
   if not ok then
     vim.notify('[dashboard.nvim] not found nvim-web-devicons')
     return nil
   end
-  return devicons.get_icon_by_filetype(ft, { default = true })
+  return devicons.get_icon(filename, nil, { default = true })
 end
 
 function utils.read_project_cache(path)
@@ -112,18 +112,22 @@ function utils.get_mru_list()
   return mru
 end
 
-function utils.get_packages_count()
-  local count = 0
+function utils.get_package_manager_stats()
+  local package_manager_stats = { name = '', count = 0, loaded = 0, time = 0 }
   ---@diagnostic disable-next-line: undefined-global
   if packer_plugins then
+    package_manager_stats.name = 'packer'
     ---@diagnostic disable-next-line: undefined-global
-    count = #vim.tbl_keys(packer_plugins)
+    package_manager_stats.count = #vim.tbl_keys(packer_plugins)
   end
   local status, lazy = pcall(require, 'lazy')
   if status then
-    count = lazy.stats().count
+    package_manager_stats.name = 'lazy'
+    package_manager_stats.loaded = lazy.stats().loaded
+    package_manager_stats.count = lazy.stats().count
+    package_manager_stats.time = lazy.stats().startuptime
   end
-  return count
+  return package_manager_stats
 end
 
 --- generate an empty table by length
@@ -160,6 +164,35 @@ local index = 0
 function utils.gen_bufname(prefix)
   index = index + 1
   return prefix .. '-' .. index
+end
+
+function utils.buf_is_empty(bufnr)
+  bufnr = bufnr or 0
+  return vim.api.nvim_buf_line_count(0) == 1
+    and vim.api.nvim_buf_get_lines(0, 0, -1, false)[1] == ''
+end
+
+local last_footer_size = nil
+function utils.add_update_footer_command(bufnr, footer)
+  vim.api.nvim_create_user_command('DashboardUpdateFooter', function(args)
+    if last_footer_size == nil then
+      last_footer_size = #footer
+    end
+
+    local first_line = vim.api.nvim_buf_line_count(bufnr)
+    vim.bo[bufnr].modifiable = true
+    vim.api.nvim_buf_set_lines(
+      bufnr,
+      first_line - last_footer_size,
+      -1,
+      false,
+      utils.center_align(args.fargs)
+    )
+    vim.bo[bufnr].modifiable = false
+    vim.bo[bufnr].modified = false
+
+    last_footer_size = #args.fargs -- For future calculation of size
+  end, { nargs = '*' })
 end
 
 return utils
